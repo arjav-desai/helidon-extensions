@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, 2026 Oracle and/or its affiliates.
+ * Copyright (c) 2026 Oracle and/or its affiliates.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,17 @@
 
 package io.helidon.extensions.oci.v3.tls.certificates;
 
-class OciTestUtils {
-    static boolean ociRealUsage() {
-        return Boolean.getBoolean("oci.real.usage");
-    }
+/**
+ * Source of the private key used by the OCI certificates TLS manager.
+ */
+public enum OciPrivateKeySource {
+    /**
+     * Export the private key from OCI Vault using the configured key OCID and Vault crypto endpoint.
+     */
+    VAULT,
+
+    /**
+     * Download the private key together with its OCI-managed certificate bundle.
+     */
+    CERTIFICATE_BUNDLE
 }
