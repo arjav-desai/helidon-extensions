@@ -89,6 +89,7 @@ Important option constants currently supported:
 - `tracingEnabled`
 - `metricsEnabled`
 - `avoidOptionalListParams`
+- `discriminatorRepresentation`
 
 Compatibility aliases:
 
@@ -158,12 +159,19 @@ Notable behavior:
   parent model builder base so inherited and local properties can be set in one
   fluent chain
 - composed schemas are normalized into template-friendly flags:
+  - discriminated bases use Helidon `@Json.Polymorphic` and `@Json.Subtype` as the
+    sole JSON discriminator owner
+  - declared discriminator properties become derived read-only accessors by default;
+    metadata-only discriminators do not add a Java accessor
+  - `x-helidon-discriminator-representation` overrides the global
+    `discriminatorRepresentation` option for one schema
   - `allOf` prefers Java inheritance when there is a single referenced parent
   - `oneOf` and `anyOf` generate model interfaces annotated with a generated
-    `@Json.Converter`
+    `@Json.Converter`; discriminated converters buffer the complete object before
+    exact-alias dispatch, making lookup independent of property order
   - union member models implement the generated interface(s)
-  - generated converters deserialize using discriminator aliases when present,
-    then fall back to structural matching by declared properties
+  - generated converters for non-discriminated unions use structural matching
+    by declared properties
   - union interface generation is limited to referenced object model members;
     primitive, array, map, and inline members fail generation with a clear
     unsupported-shape message
@@ -251,8 +259,8 @@ existing Helidon-oriented templates:
   - when exactly one referenced component schema participates, the generated model
     extends that parent and emits only locally owned properties
   - when that parent schema declares a discriminator, the base model is annotated
-    with generated Helidon polymorphism metadata and child models can initialize
-    inherited discriminator values from `x-discriminator-value`
+    with generated Helidon polymorphism metadata and exact mapping aliases become
+    derived subtype accessors instead of stored JSON properties
   - otherwise the generator falls back to a flattened model containing the merged
     properties exposed by `openapi-generator`
 - `oneOf`
@@ -260,7 +268,9 @@ existing Helidon-oriented templates:
     `@Json.Converter`
   - each referenced member model implements that interface
   - generated deserialization requires exactly one matching subtype
-  - when a discriminator is present, converter dispatch prefers discriminator aliases
+  - when a discriminator is present, converter dispatch uses exact mapping aliases
+    from the buffered object, rejects missing and unknown values, and writes one
+    canonical discriminator value
   - primitive, array, map, and inline members are rejected with a clear
     unsupported-shape message instead of generating invalid Java
 - `anyOf`

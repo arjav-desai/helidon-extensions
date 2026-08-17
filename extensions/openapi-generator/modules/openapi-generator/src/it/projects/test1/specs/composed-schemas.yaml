@@ -135,6 +135,33 @@ components:
             name:
               type: string
               description: Extended name
+    LayeredBase:
+      type: object
+      discriminator:
+        propertyName: kind
+        mapping:
+          leaf: '#/components/schemas/LayeredIntermediate'
+      properties:
+        kind:
+          type: string
+    LayeredIntermediate:
+      discriminator:
+        propertyName: kind
+        mapping:
+          leaf: '#/components/schemas/LayeredLeaf'
+      allOf:
+        - $ref: '#/components/schemas/LayeredBase'
+        - type: object
+          properties:
+            middle:
+              type: string
+    LayeredLeaf:
+      allOf:
+        - $ref: '#/components/schemas/LayeredIntermediate'
+        - type: object
+          properties:
+            leaf:
+              type: string
     Cat:
       type: object
       required:
@@ -146,6 +173,24 @@ components:
         whiskers:
           type: integer
           format: int32
+    MetadataAlpha:
+      type: object
+      properties:
+        alpha:
+          type: string
+    MetadataBeta:
+      type: object
+      properties:
+        beta:
+          type: string
+    MetadataChoice:
+      oneOf:
+        - $ref: '#/components/schemas/MetadataAlpha'
+        - $ref: '#/components/schemas/MetadataBeta'
+      discriminator:
+        propertyName: category
+        mapping:
+          alpha.v1: '#/components/schemas/MetadataAlpha'
     Dog:
       type: object
       required:
@@ -163,7 +208,7 @@ components:
       discriminator:
         propertyName: kind
         mapping:
-          cat&special: '#/components/schemas/Cat'
+          cat$special: '#/components/schemas/Cat'
           dog: '#/components/schemas/Dog'
     NullablePet:
       nullable: true
@@ -173,7 +218,7 @@ components:
       discriminator:
         propertyName: kind
         mapping:
-          cat&special: '#/components/schemas/Cat'
+          cat$special: '#/components/schemas/Cat'
           dog: '#/components/schemas/Dog'
     EmailContact:
       type: object

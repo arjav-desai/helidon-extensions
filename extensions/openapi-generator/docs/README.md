@@ -171,8 +171,14 @@ Set these under Maven `<configOptions>` or CLI `--additional-properties`.
 | `tracingEnabled` | `false` | Add `@Tracing.Traced` to generated endpoint classes |
 | `metricsEnabled` | `false` | Add `@Metrics.Timed` to generated endpoint methods |
 | `avoidOptionalListParams` | `false` | Generate `List<T>` instead of `Optional<List<T>>` for optional query list params |
+| `discriminatorRepresentation` | schema-driven | Use `metadata` or `readOnlyProperty` for every discriminator unless a schema overrides it |
 
 Legacy aliases `serveOpenApi` and `serveBasePath` are still accepted for compatibility.
+
+The schema extension `x-helidon-discriminator-representation` accepts `metadata` or
+`readOnlyProperty` and takes precedence over the global option. Without either setting,
+an explicitly declared discriminator property becomes a derived read-only accessor;
+a discriminator used only for polymorphic routing remains metadata-only.
 
 ## What Gets Generated
 
@@ -234,8 +240,16 @@ The generator supports these schema-composition keywords:
 - `allOf`: generates an inherited model when there is a single referenced parent
   component; otherwise falls back to a flattened merged model. When the parent
   schema declares a discriminator, the generator also emits `@Json.Polymorphic`
-  and `@Json.Subtype` metadata on the base model and initializes discriminator
-  values for `allOf` subtypes that provide `x-discriminator-value`
+  and `@Json.Subtype` metadata on the base model and derives exact subtype values
+  from the declared discriminator mapping. The discriminator is omitted from
+  stored model state so Helidon JSON writes it exactly once. Helidon JSON processes
+  `allOf` polymorphism as a stream, so the discriminator must be the first property
+  in JSON input deserialized through the polymorphic base type. This ordering
+  requirement does not apply to the generated `oneOf` and `anyOf` converters,
+  which buffer each complete JSON object before selecting a member.
+  In a multi-level hierarchy, each ancestor routes a concrete descendant using
+  the canonical alias declared by that descendant's nearest discriminator-owning
+  parent; duplicate descendant aliases fail generation as ambiguous.
 - `oneOf`: generates a Java interface for the composed schema, attaches a
   generated `@Json.Converter`, makes member models implement it, and requires
   exactly one matching subtype during deserialization. Members must be referenced
@@ -247,9 +261,13 @@ The generator supports these schema-composition keywords:
   object model schemas; primitive, array, map, and inline members fail generation
   with a clear unsupported-shape message.
 
-For union schemas, generated converters use the OpenAPI discriminator when one is
-present. Without a discriminator, they fall back to structural matching based on
-the member models' required and declared properties.
+For union schemas, generated converters buffer the JSON object and use the OpenAPI
+discriminator when one is present, so the discriminator can appear anywhere in
+the object. The converter accepts the declared mapping value, writes one canonical
+discriminator, and rejects missing or unknown values. A mapping with multiple
+aliases for one subtype is rejected because no single canonical output value is
+defined. Without a discriminator, converters fall back to structural matching
+based on the member models' required and declared properties.
 
 ### Model API
 

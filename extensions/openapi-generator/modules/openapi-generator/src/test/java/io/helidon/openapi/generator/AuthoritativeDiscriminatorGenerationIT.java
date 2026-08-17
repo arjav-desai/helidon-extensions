@@ -1,0 +1,290 @@
+/*
+ * Copyright (c) 2026 Oracle and/or its affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package io.helidon.openapi.generator;
+
+import java.io.IOException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.openapitools.codegen.DefaultGenerator;
+import org.openapitools.codegen.config.CodegenConfigurator;
+
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class AuthoritativeDiscriminatorGenerationIT {
+
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void schemaDrivenDefaultsUseDeclaredReadOnlyPropertyAndMetadataOnly() throws Exception {
+        Path output = generate("default", null);
+        String base = model(output, "DeclaredBase");
+        String cat = model(output, "DeclaredCat");
+        String metadataChoice = model(output, "MetadataChoice");
+
+        assertThat(base, containsString("public abstract class DeclaredBase"));
+        assertThat(base, containsString("@Json.Converter(DeclaredBase.DeclaredBaseJsonConverter.class)"));
+        assertThat(base, containsString("case \"weird.alias\" -> declaredCatDeserializer.deserialize("));
+        assertThat(base, containsString("case \"MixedCase-2\" -> declaredDogDeserializer.deserialize("));
+        assertThat(base, containsString("case \"DeclaredBird\" -> declaredBirdDeserializer.deserialize("));
+        assertThat(base, not(containsString("@Json.Subtype")));
+        assertThat(base, containsString("public abstract String kind();"));
+        assertThat(base, not(containsString("private String kind;")));
+        assertThat(base, not(containsString("void kind(")));
+        assertThat(base, not(containsString("static BuilderBase<?, ? extends DeclaredBase> builder()")));
+        assertThat(cat, containsString("return \"weird.alias\";"));
+        assertThat(cat, not(containsString("private String kind;")));
+        assertThat(cat, not(containsString("void kind(")));
+
+        assertThat(metadataChoice, containsString("@Json.Converter(MetadataChoice.MetadataChoiceJsonConverter.class)"));
+        assertThat(metadataChoice, containsString("case \"alpha.v1\" -> deserializeMetadataAlpha(jsonObject)"));
+        assertThat(metadataChoice, containsString("case \"MetadataBeta\" -> deserializeMetadataBeta(jsonObject)"));
+        assertThat(metadataChoice, not(containsString("String category();")));
+        assertThat(metadataChoice, not(containsString("@Json.Polymorphic")));
+    }
+
+    @Test
+    void globalModesAndSchemaOverridesUseDocumentedPrecedence() throws Exception {
+        Path metadata = generate("metadata", "metadata");
+        assertThat(model(metadata, "DeclaredBase"), not(containsString("String kind();")));
+        assertThat(model(metadata, "ForcedReadOnly"), containsString("String type();"));
+
+        Path readOnly = generate("read-only", "readOnlyProperty");
+        assertThat(model(readOnly, "MetadataChoice"), containsString("String category();"));
+        assertThat(model(readOnly, "ForcedMetadata"), not(containsString("String type();")));
+        assertThat(model(readOnly, "ForcedMetadataCat"), not(containsString("private String type;")));
+    }
+
+    @Test
+    void ambiguousUnresolvedAndSelfMappingsFailBeforeRendering() throws Exception {
+        RuntimeException ambiguous = generateFailure("ambiguous", """
+                Cat:
+                  type: object
+                  properties:
+                    cat:
+                      type: string
+                Dog:
+                  type: object
+                  properties:
+                    dog:
+                      type: string
+                Choice:
+                  oneOf:
+                    - $ref: '#/components/schemas/Cat'
+                    - $ref: '#/components/schemas/Dog'
+                  discriminator:
+                    propertyName: kind
+                    mapping:
+                      first: '#/components/schemas/Cat'
+                      second: '#/components/schemas/Cat'
+                """);
+        assertThat(rootMessage(ambiguous), containsString("multiple explicit aliases [first, second]"));
+
+        RuntimeException unresolved = generateFailure("unresolved", """
+                Cat:
+                  type: object
+                  properties:
+                    cat:
+                      type: string
+                Choice:
+                  oneOf:
+                    - $ref: '#/components/schemas/Cat'
+                  discriminator:
+                    propertyName: kind
+                    mapping:
+                      missing: '#/components/schemas/DoesNotExist'
+                """);
+        assertThat(rootMessage(unresolved), containsString("does not resolve to exactly one concrete subtype"));
+
+        RuntimeException self = generateFailure("self", """
+                Base:
+                  type: object
+                  discriminator:
+                    propertyName: kind
+                    mapping:
+                      base: '#/components/schemas/Base'
+                      cat: '#/components/schemas/Cat'
+                Cat:
+                  allOf:
+                    - $ref: '#/components/schemas/Base'
+                    - type: object
+                      properties:
+                        value:
+                          type: string
+                """);
+        String message = rootMessage(self);
+        assertThat(message, containsString("Unsupported discriminator self-mapping"));
+        assertThat(message, containsString("#/components/schemas/Base"));
+        assertThat(message, containsString("discriminator property 'kind'"));
+        assertThat(message, containsString("alias 'base'"));
+        assertThat(message, containsString("target '#/components/schemas/Base'"));
+        assertThat(message, containsString("input specification '"));
+        assertThat(message, containsString("Define a concrete subtype"));
+        assertFalse(Files.exists(tempDir.resolve("self-generated/src/main/java")));
+
+        RuntimeException duplicateDescendantAlias = generateFailure("duplicate-descendant-alias", """
+                Base:
+                  type: object
+                  discriminator:
+                    propertyName: kind
+                  properties:
+                    kind:
+                      type: string
+                MidA:
+                  discriminator:
+                    propertyName: kind
+                    mapping:
+                      leaf: '#/components/schemas/LeafA'
+                  allOf:
+                    - $ref: '#/components/schemas/Base'
+                    - type: object
+                MidB:
+                  discriminator:
+                    propertyName: kind
+                    mapping:
+                      leaf: '#/components/schemas/LeafB'
+                  allOf:
+                    - $ref: '#/components/schemas/Base'
+                    - type: object
+                LeafA:
+                  allOf:
+                    - $ref: '#/components/schemas/MidA'
+                    - type: object
+                LeafB:
+                  allOf:
+                    - $ref: '#/components/schemas/MidB'
+                    - type: object
+                """);
+        assertThat(rootMessage(duplicateDescendantAlias), containsString("share canonical alias 'leaf'"));
+    }
+
+    @Test
+    void regenerationIsByteStable() throws Exception {
+        Path first = generate("stable-first", null);
+        Path second = generate("stable-second", null);
+        Path firstRoot = first.resolve("src/main/java");
+        Path secondRoot = second.resolve("src/main/java");
+        List<Path> firstFiles;
+        List<Path> secondFiles;
+        try (var stream = Files.walk(firstRoot)) {
+            firstFiles = stream.filter(Files::isRegularFile).sorted().toList();
+        }
+        try (var stream = Files.walk(secondRoot)) {
+            secondFiles = stream.filter(Files::isRegularFile).sorted().toList();
+        }
+        assertEquals(firstFiles.stream().map(firstRoot::relativize).toList(),
+                     secondFiles.stream().map(secondRoot::relativize).toList());
+        for (Path file : firstFiles) {
+            Path relative = firstRoot.relativize(file);
+            assertArrayEquals(Files.readAllBytes(file), Files.readAllBytes(secondRoot.resolve(relative)),
+                              relative.toString());
+        }
+    }
+
+    @Test
+    void diagnosticReferencesDoNotExposeUriCredentialsOrQueries() {
+        assertEquals("https://example.invalid/api.yaml#/components/schemas/Cat",
+                     HelidonDeclarativeCodegen.sanitizeDiagnosticReference(
+                             "https://user:password@example.invalid/api.yaml?access_token=value"
+                                     + "#/components/schemas/Cat"));
+        assertEquals("#/components/schemas/Cat",
+                     HelidonDeclarativeCodegen.sanitizeDiagnosticReference("#/components/schemas/Cat"));
+        assertEquals("file:/tmp/spec.yaml",
+                     HelidonDeclarativeCodegen.sanitizeDiagnosticReference("file:/tmp/spec.yaml?token=hidden"));
+    }
+
+    @Test
+    void supportsExtensionValuesInheritedEnumTypesAndTransitiveHierarchies() throws Exception {
+        URL resource = getClass().getClassLoader().getResource("authoritative-discriminator-adversarial.yaml");
+        Path output = generate("adversarial", Paths.get(resource.toURI()).toAbsolutePath(), null);
+
+        assertThat(model(output, "ExtensionCat"), containsString("return ExtensionBase.KindEnum.WIRE_CAT;"));
+
+        String distinctLeaf = model(output, "DistinctLeaf");
+        assertThat(distinctLeaf, containsString("public BaseKindEnum baseKind()"));
+        assertThat(distinctLeaf, containsString("public LeafKindEnum leafKind()"));
+
+        assertThat(model(output, "EnumPet"), containsString("KindHolder.KindEnum kind();"));
+        assertThat(model(output, "UnionCat"), containsString("public KindHolder.KindEnum kind()"));
+        assertThat(model(output, "UnionDog"), containsString("public KindHolder.KindEnum kind()"));
+
+        assertThat(model(output, "TransitiveBase"),
+                   containsString("@Json.Subtype(alias = \"leaf\", value = TransitiveLeaf.class)"));
+        assertThat(model(output, "TransitiveLeaf"), containsString("return \"leaf\";"));
+    }
+
+    private Path generate(String name, String representation) throws Exception {
+        URL resource = getClass().getClassLoader().getResource("authoritative-discriminators.yaml");
+        Path spec = Paths.get(resource.toURI()).toAbsolutePath();
+        return generate(name, spec, representation);
+    }
+
+    private Path generate(String name, Path spec, String representation) {
+        Path output = tempDir.resolve(name + "-generated");
+        CodegenConfigurator configurator = new CodegenConfigurator()
+                .setGeneratorName("helidon-declarative")
+                .setInputSpec(spec.toString())
+                .setOutputDir(output.toString())
+                .addAdditionalProperty("helidonVersion", "4.4.1")
+                .addAdditionalProperty("apiPackage", "io.helidon.example.api")
+                .addAdditionalProperty("modelPackage", "io.helidon.example.model")
+                .addAdditionalProperty("invokerPackage", "io.helidon.example");
+        if (representation != null) {
+            configurator.addAdditionalProperty("discriminatorRepresentation", representation);
+        }
+        new DefaultGenerator().opts(configurator.toClientOptInput()).generate();
+        return output;
+    }
+
+    private RuntimeException generateFailure(String name, String schemas) throws IOException {
+        Path spec = tempDir.resolve(name + ".yaml");
+        Files.writeString(spec, """
+                openapi: 3.0.3
+                info:
+                  title: Invalid discriminator
+                  version: 1.0.0
+                paths: {}
+                components:
+                  schemas:
+                """ + schemas.indent(6));
+        return assertThrows(RuntimeException.class, () -> generate(name, spec, null));
+    }
+
+    private String model(Path output, String name) throws IOException {
+        return Files.readString(output.resolve("src/main/java/io/helidon/example/model/" + name + ".java"));
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage();
+    }
+}
