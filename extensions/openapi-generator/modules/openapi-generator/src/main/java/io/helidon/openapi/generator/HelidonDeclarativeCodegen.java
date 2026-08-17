@@ -112,7 +112,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
             "RESPONSE",
             "RESPONSES");
 
-    private String helidonVersion = "4.4.1";
+    private String helidonVersion = "4.5.0";
     private String javaVersion = "21";
     private boolean generateClient = true;
     private boolean generateErrorHandler = true;
@@ -125,12 +125,14 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
     private boolean avoidOptionalListParams = false;
     private List<SecurityRequirement> globalSecurityRequirements = List.of();
     private Map<String, String> rawAllOfDiscriminatorValuesBySchema = Map.of();
+    private final JsonStringEnumSupport jsonStringEnums;
 
     /**
      * Creates a new generator with default options and template mappings.
      */
     public HelidonDeclarativeCodegen() {
         super();
+        jsonStringEnums = new JsonStringEnumSupport(this::toEnumVarName, this::toModelName);
 
         outputFolder = "generated-code/helidon-declarative";
         // Setting the fields directly configures where templates are resolved from
@@ -373,6 +375,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
 
     @Override
     public void preprocessOpenAPI(io.swagger.v3.oas.models.OpenAPI openAPI) {
+        jsonStringEnums.preprocess(openAPI);
         super.preprocessOpenAPI(openAPI);
         globalSecurityRequirements = openAPI.getSecurity() == null
                 ? List.of()
@@ -435,6 +438,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         if (allOfDiscriminatorValue != null) {
             model.vendorExtensions.put("x-allof-discriminator-value", allOfDiscriminatorValue);
         }
+        jsonStringEnums.markHttpParameterEnum(name, model);
         return model;
     }
 
@@ -448,6 +452,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
                                           Operation operation,
                                           List<Server> servers) {
         CodegenOperation op = super.fromOperation(path, httpMethod, operation, servers);
+        jsonStringEnums.restoreInlineRequestEntityEnum(path, httpMethod, op);
 
         // HTTP method annotation string (e.g. "@Http.GET")
         op.vendorExtensions.put("x-http-annotation", "@Http." + httpMethod.toUpperCase());
@@ -616,6 +621,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         boolean anyFormOperations = false;
         boolean anyMultipartOperations = false;
         String errorModel = null;
+        Map<String, Map<String, Object>> operationEnums = new LinkedHashMap<>();
 
         for (CodegenOperation op : opList) {
             // Sub-path (part after commonPath)
@@ -644,6 +650,12 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
             }
             // Parameter-level validation annotations
             for (CodegenParameter param : op.allParams) {
+                jsonStringEnums.prepareInlineRequestEntityEnum(op, param);
+                jsonStringEnums.promoteInlineOperationEnum(operationEnums,
+                                                           ops.getClassname(),
+                                                           op,
+                                                           param,
+                                                           value -> camelize(sanitizeName(value)));
                 List<Map<String, Object>> paramValidations = buildParamValidationAnnotations(param);
                 if (!paramValidations.isEmpty()) {
                     param.vendorExtensions.put("x-validation-annotations", paramValidations);
@@ -674,6 +686,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         result.put("hasParamValidation", anyParamValidation);
         result.put("hasFormOperations", anyFormOperations);
         result.put("hasMultipartOperations", anyMultipartOperations);
+        jsonStringEnums.applyOperationEnums(result, operationEnums);
         if (anyParamValidation) {
             // Needed by pom.xml.mustache when only parameters (not models) use @Validation.*
             additionalProperties.put("hasValidation", Boolean.TRUE);
@@ -827,23 +840,18 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
             ModelsMap modelsMap = entry.getValue();
             for (ModelMap modelContainer : modelsMap.getModels()) {
                 var model = modelContainer.getModel();
+                if (jsonStringEnums.prepareTopLevelModel(model)) {
+                    continue;
+                }
                 if (Boolean.TRUE.equals(model.vendorExtensions.get("x-is-union-interface"))) {
                     model.vendorExtensions.put("x-render-vars", List.of());
                     continue;
                 }
 
                 boolean modelHasValidation = false;
-                List<CodegenProperty> renderVars = renderVars(model);
+                List<CodegenProperty> renderVars = jsonStringEnums.prepareInlineModelEnums(model);
 
                 for (CodegenProperty prop : renderVars) {
-                    if (prop.isEnum) {
-                        String enumName = prop.isArray && prop.items != null && prop.items.datatypeWithEnum != null
-                                ? prop.items.datatypeWithEnum : prop.datatypeWithEnum;
-                        if (enumName != null && !enumName.isBlank()) {
-                            prop.vendorExtensions.put("x-enum-name", enumName);
-                        }
-                    }
-
                     // Mark required properties for @Json.Required
                     if (prop.required) {
                         prop.vendorExtensions.put("x-json-required", Boolean.TRUE);
@@ -1136,15 +1144,6 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         return properties.stream()
                 .filter(prop -> !inheritedNames.contains(prop.name))
                 .toList();
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<CodegenProperty> renderVars(CodegenModel model) {
-        Object renderVars = model.vendorExtensions.get("x-render-vars");
-        if (renderVars instanceof List<?> vars) {
-            return (List<CodegenProperty>) vars;
-        }
-        return model.vars;
     }
 
     private List<Map<String, Object>> toNamedList(List<String> names) {
@@ -1741,7 +1740,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
     private List<Map<String, Object>> buildValidationAnnotations(CodegenProperty prop) {
         List<Map<String, Object>> result = new ArrayList<>();
 
-        if (prop.isString) {
+        if (prop.isString && !prop.vendorExtensions.containsKey("x-enum-wire-constraints-validated")) {
             // minLength / maxLength → @Validation.String.Length
             if (prop.minLength != null || prop.maxLength != null) {
                 List<String> attrs = new ArrayList<>();
@@ -1829,7 +1828,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
     private List<Map<String, Object>> buildParamValidationAnnotations(CodegenParameter param) {
         List<Map<String, Object>> result = new ArrayList<>();
 
-        if (param.isString) {
+        if (param.isString && !param.vendorExtensions.containsKey("x-enum-wire-constraints-validated")) {
             if (param.minLength != null || param.maxLength != null) {
                 List<String> attrs = new ArrayList<>();
                 if (param.minLength != null) attrs.add("min = " + param.minLength);

@@ -1,0 +1,221 @@
+#
+# Copyright (c) 2026 Oracle and/or its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+openapi: 3.0.3
+info:
+  title: JSON String Enum Test
+  version: 1.0.0
+paths:
+  /enum/{routeMode}:
+    post:
+      tags: [enums]
+      operationId: inspectMode
+      parameters:
+        - name: routeMode
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [fast-mode, authZ]
+        - name: mode
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Mode'
+        - name: modes
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/Mode'
+        - name: X-Trace-Mode
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [trace.on, trace-OFF]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              enum: [request-quick, requestAuthZ]
+      responses:
+        '200':
+          description: Exact enum response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mode'
+  /enum-no-id:
+    post:
+      tags: [enums]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              enum: [foo-bar, foo_bar]
+      responses:
+        '204':
+          description: Accepted
+  /numeric-enum-body:
+    post:
+      tags: [enums]
+      operationId: numericEnumBody
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: integer
+              enum: [1, 2]
+      responses:
+        '204':
+          description: Accepted
+  /boolean-enum-body:
+    post:
+      tags: [enums]
+      operationId: booleanEnumBody
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: boolean
+              enum: [true, false]
+      responses:
+        '204':
+          description: Accepted
+  /validated-enum/{mode}:
+    get:
+      tags: [enums]
+      operationId: validatedEnum
+      parameters:
+        - name: mode
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [safe]
+            minLength: 4
+            pattern: ^safe$
+      responses:
+        '204':
+          description: Accepted
+  /text-enum-body:
+    post:
+      tags: [enums]
+      operationId: textEnumBody
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              enum: [one]
+      responses:
+        '204':
+          description: Accepted
+  /mixed-enum-body:
+    post:
+      tags: [enums]
+      operationId: mixedEnumBody
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              enum: [one]
+          text/plain:
+            schema:
+              type: string
+              enum: [one]
+      responses:
+        '204':
+          description: Accepted
+  /helper-name-a:
+    get:
+      tags: [foo]
+      operationId: bar
+      parameters:
+        - name: apiBazMode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [a]
+      responses:
+        '204':
+          description: Accepted
+  /helper-name-b:
+    get:
+      tags: [foo-api-bar]
+      operationId: baz
+      parameters:
+        - name: mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [b]
+      responses:
+        '204':
+          description: Accepted
+components:
+  schemas:
+    Mode:
+      type: string
+      nullable: true
+      enum: [fast-mode, authZ, legacy.value]
+    CollidingMode:
+      type: string
+      enum: [foo-bar, foo_bar, FOO-BAR]
+    ModeJsonConverter:
+      type: string
+      enum: [slow]
+    EnumEnvelopeInlineModeEnumJsonConverter:
+      type: string
+      enum: [reserved]
+    EnumEnvelope:
+      type: object
+      properties:
+        inlineMode:
+          type: string
+          nullable: true
+          enum: [on-hold, authZ]
+        mode:
+          $ref: '#/components/schemas/Mode'
+        modes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mode'
+        inlineModes:
+          type: array
+          items:
+            type: string
+            enum: [batch-fast, batchAuthZ]
+        validatedInline:
+          type: string
+          enum: [safe]
+          minLength: 4
+          pattern: ^safe$
+        numericPriority:
+          type: integer
+          enum: [1, 2]
