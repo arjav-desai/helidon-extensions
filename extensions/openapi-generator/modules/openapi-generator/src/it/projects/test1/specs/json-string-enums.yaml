@@ -165,8 +165,25 @@ paths:
       responses:
         '204':
           description: Accepted
+  /service-name-collision:
+    get:
+      tags: [enums]
+      operationId: getServiceNameCollision
+      responses:
+        '200':
+          description: Model whose name collides with Helidon's Service annotation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Service'
 components:
   schemas:
+    Service:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [ready-now, paused]
     Mode:
       type: string
       nullable: true
@@ -177,6 +194,14 @@ components:
     ModeJsonConverter:
       type: string
       enum: [slow]
+    EscapedMode:
+      type: string
+      enum:
+        - ''
+        - 'quote"value'
+        - 'back\slash'
+        - "line\nbreak"
+        - "snowman-\u2603"
     EnumEnvelopeInlineModeEnumJsonConverter:
       type: string
       enum: [reserved]
@@ -187,6 +212,11 @@ components:
           type: string
           nullable: true
           enum: [on-hold, authZ]
+        escapedInline:
+          type: string
+          enum:
+            - 'quote"value'
+            - "line\nbreak"
         mode:
           $ref: '#/components/schemas/Mode'
         modes:

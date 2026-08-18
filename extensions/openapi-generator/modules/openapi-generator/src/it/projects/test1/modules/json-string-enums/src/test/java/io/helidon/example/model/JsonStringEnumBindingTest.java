@@ -68,6 +68,24 @@ class JsonStringEnumBindingTest {
     }
 
     @Test
+    void adversarialWireValuesRoundTripExactly() {
+        List<String> values = List.of("", "quote\"value", "back\\slash", "line\nbreak", "snowman-☃");
+
+        for (String value : values) {
+            EscapedMode mode = EscapedMode.fromValue(value);
+            String json = jsonBinding.serialize(mode, EscapedMode.class);
+            assertThat(jsonBinding.deserialize(json, EscapedMode.class), is(mode));
+            assertThat(jsonBinding.deserialize(json, EscapedMode.class).value(), is(value));
+        }
+
+        var envelope = new EnumEnvelope();
+        envelope.escapedInline(EnumEnvelope.EscapedInlineEnum.LINE_BREAK);
+        String inlineJson = jsonBinding.serialize(envelope, EnumEnvelope.class);
+        EnumEnvelope restored = jsonBinding.deserialize(inlineJson, EnumEnvelope.class);
+        assertThat(restored.escapedInline().value(), is("line\nbreak"));
+    }
+
+    @Test
     void sharedBindingConvertsAlternatingValuesConcurrently() {
         List<Mode> converted = IntStream.range(0, 2_000)
                 .parallel()
@@ -78,5 +96,16 @@ class JsonStringEnumBindingTest {
         for (int i = 0; i < converted.size(); i++) {
             assertThat(converted.get(i), is(i % 2 == 0 ? Mode.FAST_MODE : Mode.AUTH_Z));
         }
+    }
+
+    @Test
+    void modelNamedServiceRoundTripsWithoutRegistryTypeCollision() {
+        Service service = new Service();
+        service.state(Service.StateEnum.READY_NOW);
+
+        String json = jsonBinding.serialize(service, Service.class);
+
+        assertThat(json, is("{\"state\":\"ready-now\"}"));
+        assertThat(jsonBinding.deserialize(json, Service.class).state(), is(Service.StateEnum.READY_NOW));
     }
 }

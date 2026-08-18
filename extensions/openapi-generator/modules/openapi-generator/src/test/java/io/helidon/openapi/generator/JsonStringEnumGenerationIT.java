@@ -112,6 +112,8 @@ class JsonStringEnumGenerationIT {
         assertThat(envelope, containsString("public enum NumericPriorityEnum"));
         assertThat(envelope, containsString("NUMBER_1"));
         assertThat(envelope, containsString("NUMBER_2"));
+        assertThat(envelope, not(containsString("@Validation.Validated")));
+        assertThat(envelope, not(containsString("@Validation.String.Length")));
     }
 
     @Test
@@ -182,8 +184,20 @@ class JsonStringEnumGenerationIT {
     }
 
     @Test
-    void generatedProjectUsesRequiredHelidonBaselineByDefault() throws IOException {
-        assertThat(read(outputDir.resolve("pom.xml")), containsString("<helidon.version>4.5.0</helidon.version>"));
+    void generatedProjectUsesLatestHelidonReleaseByDefault() throws IOException {
+        assertThat(read(outputDir.resolve("pom.xml")), containsString("<helidon.version>4.5.2</helidon.version>"));
+        assertThat(read(outputDir.resolve("build.gradle")), containsString("def helidonVersion = '4.5.2'"));
+    }
+
+    @Test
+    void generatedEnumContractsNeedNoReflectiveOrThreadLocalAdapters() throws IOException {
+        String sources = generatedSources(outputDir);
+
+        assertThat(sources, not(containsString("ThreadLocal")));
+        assertThat(sources, not(containsString("java.lang.reflect")));
+        assertThat(sources, not(containsString("Class.forName")));
+        assertThat(sources, not(containsString("MapperProvider")));
+        assertThat(sources, not(containsString("getValue()")));
     }
 
     @Test
@@ -219,6 +233,19 @@ class JsonStringEnumGenerationIT {
 
     private static String read(Path file) throws IOException {
         return Files.readString(file).replace("\r\n", "\n");
+    }
+
+    private static String generatedSources(Path output) throws IOException {
+        Path sourceRoot = output.resolve("src/main/java");
+        List<Path> sources;
+        try (var stream = Files.walk(sourceRoot)) {
+            sources = stream.filter(Files::isRegularFile).sorted().toList();
+        }
+        StringBuilder result = new StringBuilder();
+        for (Path source : sources) {
+            result.append(read(source));
+        }
+        return result.toString();
     }
 
     private static String rootMessage(Throwable throwable) {

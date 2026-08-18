@@ -58,7 +58,7 @@ The module is packaged as a thin jar. Runtime dependencies are copied to
 
 In the examples below, `4.0.0-SNAPSHOT` is the version of this extension artifact.
 The separate `helidonVersion` option controls which Helidon version is written
-into generated Maven and Gradle projects, and its current default is `4.5.0`.
+into generated Maven and Gradle projects, and its current default is `4.5.2`.
 The `javaVersion` option controls the generated Maven compiler source and target
 values and the generated Gradle Java toolchain version, and its current default is
 `21`.
@@ -93,7 +93,7 @@ Add the generator as a dependency of `openapi-generator-maven-plugin`:
                 <inputSpec>${project.basedir}/src/main/resources/openapi.yaml</inputSpec>
                 <output>${project.build.directory}/generated-sources/openapi</output>
                 <configOptions>
-                    <helidonVersion>4.5.0</helidonVersion>
+                    <helidonVersion>4.5.2</helidonVersion>
                     <javaVersion>21</javaVersion>
                     <apiPackage>com.example.api</apiPackage>
                     <modelPackage>com.example.model</modelPackage>
@@ -121,7 +121,7 @@ mvn generate-sources
 In that example:
 
 - `4.0.0-SNAPSHOT` is the version of `helidon-extensions-openapi-generator`
-- `4.5.0` is the Helidon version used in the generated project
+- `4.5.2` is the Helidon version used in the generated project
 
 ## CLI Usage
 
@@ -133,11 +133,11 @@ java -jar openapi-generator/modules/openapi-generator/target/helidon-extensions-
   -g helidon-declarative \
   -i /path/to/openapi.yaml \
   -o /path/to/output \
-  --additional-properties helidonVersion=4.5.0,javaVersion=21,apiPackage=com.example.api,modelPackage=com.example.model,invokerPackage=com.example
+  --additional-properties helidonVersion=4.5.2,javaVersion=21,apiPackage=com.example.api,modelPackage=com.example.model,invokerPackage=com.example
 ```
 
 Here again, the jar version (`4.0.0-SNAPSHOT`) is the generator version, while
-`helidonVersion=4.5.0` controls the generated Helidon dependencies and
+`helidonVersion=4.5.2` controls the generated Helidon dependencies and
 `javaVersion=21` controls the generated project Java compilation level.
 
 Example with the optional-list flag enabled:
@@ -148,7 +148,7 @@ java -jar openapi-generator/modules/openapi-generator/target/helidon-extensions-
   -g helidon-declarative \
   -i /path/to/openapi.yaml \
   -o /tmp/generated-openapi \
-  --additional-properties helidonVersion=4.5.0,avoidOptionalListParams=true
+  --additional-properties helidonVersion=4.5.2,avoidOptionalListParams=true
 ```
 
 ## Generator Options
@@ -157,7 +157,7 @@ Set these under Maven `<configOptions>` or CLI `--additional-properties`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `helidonVersion` | `4.5.0` | Helidon version written into generated Maven and Gradle builds |
+| `helidonVersion` | `4.5.2` | Helidon version written into generated Maven and Gradle builds |
 | `javaVersion` | `21` | Java version written into generated Maven compiler source/target and Gradle toolchain builds |
 | `apiPackage` | `io.helidon.example.api` | Package for generated API, endpoint, client, and error classes |
 | `modelPackage` | `io.helidon.example.model` | Package for generated model classes |
@@ -327,6 +327,40 @@ The generator currently emits Helidon validation annotations for:
 For model classes, validation annotations are emitted on prefixless accessor
 methods rather than private fields so generated projects compile cleanly with the
 current validation API.
+
+Validation participation is computed transitively across generated model references.
+Participating models receive `@Validation.Validated`. Required, non-null direct model
+boundaries use method-level `@Validation.Valid`. Nullable direct model properties use
+`Optional<T>` accessors backed by an `Optional<@Validation.Valid T>` validation field so
+validation skips absent values safely. `Optional`, collection, map-value, and array
+boundaries use type-use `@Validation.Valid`. Map keys are not cascade targets.
+Inherited `allOf` constraints and cascades are repeated on generated child overrides so
+the concrete child validator executes the complete parent contract. Constraints on a
+same-name child property are composed conjunctively with constraints from every `allOf`
+ancestor; combinations that cannot be represented by one Helidon annotation fail generation.
+Request entities
+use the same boundary rules and add `helidon-webserver-validation` so invalid entities
+follow Helidon's standard HTTP rejection behavior.
+
+Arbitrary `Iterable` or custom container mappings cannot guarantee Helidon cascade
+semantics and are rejected before source rendering with an actionable diagnostic,
+including request-entity containers. Schema-declared nullable request entities or nullable
+nested request model values are rejected because Helidon 4.5 does not null-guard a direct
+`@Validation.Valid` validator call; use `Optional`, a supported container, or a required
+non-null property.
+Helidon 4.5 also does not convert a contract-violating JSON `null` at a non-nullable
+`@Validation.Valid` boundary into a validation response. Rejecting that case requires a
+null guard in Helidon validation code generation and is outside this generator-only feature.
+Model properties and request entities whose union type has constrained concrete members
+are rejected because Helidon cannot statically dispatch that validation boundary to a
+runtime subtype; use a concrete DTO or application validation.
+Recursive references are allowed when they do not participate in generated validation.
+A cycle between participating models, including one introduced by inherited `allOf`
+properties, is also rejected before rendering because Helidon
+4.5 creates eager `TypeValidator` dependencies for `@Validation.Valid` boundaries and
+cannot activate a recursive validator graph. Break the validation cycle, map the
+recursive boundary to a non-validating DTO, or validate that boundary in application
+logic.
 
 ## Testing
 

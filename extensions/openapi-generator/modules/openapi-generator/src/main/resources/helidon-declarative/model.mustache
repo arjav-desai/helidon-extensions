@@ -22,7 +22,6 @@ import io.helidon.json.binding.Json;
 import io.helidon.json.JsonGenerator;
 import io.helidon.json.JsonParser;
 import io.helidon.json.binding.JsonConverter;
-import io.helidon.service.registry.Service;
 {{#vendorExtensions.x-has-http-enum-mappers}}import io.helidon.common.mapper.Mapper;
 {{/vendorExtensions.x-has-http-enum-mappers}}{{/vendorExtensions.x-has-string-enums}}{{/model}}
 {{#model}}{{#vendorExtensions.x-use-union-converter}}import java.io.ByteArrayOutputStream;
@@ -42,7 +41,6 @@ import io.helidon.json.binding.JsonBindingConfigurator;
 import io.helidon.json.binding.JsonConverter;
 import io.helidon.json.binding.JsonDeserializer;
 import io.helidon.json.binding.JsonSerializer;
-import io.helidon.service.registry.Service;
 {{/vendorExtensions.x-use-union-converter}}{{/model}}
 {{#model}}{{#vendorExtensions.x-use-polymorphic-converter}}import java.io.ByteArrayOutputStream;
 import java.util.Set;
@@ -57,7 +55,6 @@ import io.helidon.json.binding.JsonBindingConfigurator;
 import io.helidon.json.binding.JsonConverter;
 import io.helidon.json.binding.JsonDeserializer;
 import io.helidon.json.binding.JsonSerializer;
-import io.helidon.service.registry.Service;
 {{/vendorExtensions.x-use-polymorphic-converter}}{{/model}}
 {{#imports}}
 import {{import}};
@@ -374,7 +371,7 @@ import {{import}};
 
 }
 
-@Service.Singleton
+@io.helidon.service.registry.Service.Singleton
 final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{classname}}> {
 
     @Override
@@ -421,7 +418,7 @@ final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{clas
 {{#vendorExtensions.x-render-vars}}
     {{#description}}/** {{description}} */
     {{/description}}{{#vendorExtensions.x-json-required}}@Json.Required
-    {{/vendorExtensions.x-json-required}}private {{{datatypeWithEnum}}} {{name}}{{#vendorExtensions.x-default-value}} = {{{vendorExtensions.x-default-value}}}{{/vendorExtensions.x-default-value}};
+    {{/vendorExtensions.x-json-required}}private {{#vendorExtensions.x-nullable-direct-cascade-validation}}java.util.Optional<{{{datatypeWithEnum}}}>{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-nullable-direct-cascade-validation}} {{name}}{{#vendorExtensions.x-nullable-direct-cascade-validation}} = java.util.Optional.{{#vendorExtensions.x-default-value}}ofNullable({{{vendorExtensions.x-default-value}}}){{/vendorExtensions.x-default-value}}{{^vendorExtensions.x-default-value}}empty(){{/vendorExtensions.x-default-value}}{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{#vendorExtensions.x-default-value}} = {{{vendorExtensions.x-default-value}}}{{/vendorExtensions.x-default-value}}{{/vendorExtensions.x-nullable-direct-cascade-validation}};
 
 {{/vendorExtensions.x-render-vars}}
     /** No-arg constructor. */
@@ -451,15 +448,25 @@ final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{clas
 
 {{#vendorExtensions.x-render-vars}}
 {{#vendorExtensions.x-validation-annotations}}    {{{annotation}}}
-{{/vendorExtensions.x-validation-annotations}}    public {{{datatypeWithEnum}}} {{name}}() {
+{{/vendorExtensions.x-validation-annotations}}{{#vendorExtensions.x-cascade-validation}}    @Validation.Valid
+{{/vendorExtensions.x-cascade-validation}}    public {{#vendorExtensions.x-validation-datatype}}{{{vendorExtensions.x-validation-datatype}}}{{/vendorExtensions.x-validation-datatype}}{{^vendorExtensions.x-validation-datatype}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-validation-datatype}} {{name}}() {
         return {{name}};
     }
 
-    public void {{name}}({{{datatypeWithEnum}}} {{name}}) {
-        this.{{name}} = {{name}};
+    public void {{name}}({{#vendorExtensions.x-nullable-direct-cascade-validation}}java.util.Optional<{{{datatypeWithEnum}}}>{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-nullable-direct-cascade-validation}} {{name}}) {
+        this.{{name}} = {{#vendorExtensions.x-nullable-direct-cascade-validation}}{{name}} == null ? java.util.Optional.empty() : {{name}}{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{name}}{{/vendorExtensions.x-nullable-direct-cascade-validation}};
     }
 
 {{/vendorExtensions.x-render-vars}}
+{{#vendorExtensions.x-inherited-validation-vars}}
+    @Override
+{{#vendorExtensions.x-validation-annotations}}    {{{annotation}}}
+{{/vendorExtensions.x-validation-annotations}}{{#vendorExtensions.x-cascade-validation}}    @Validation.Valid
+{{/vendorExtensions.x-cascade-validation}}    public {{#vendorExtensions.x-validation-datatype}}{{{vendorExtensions.x-validation-datatype}}}{{/vendorExtensions.x-validation-datatype}}{{^vendorExtensions.x-validation-datatype}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-validation-datatype}} {{name}}() {
+        return super.{{name}}();
+    }
+
+{{/vendorExtensions.x-inherited-validation-vars}}
 {{^vendorExtensions.x-extends-model}}
 {{^vendorExtensions.x-abstract-polymorphic-base}}
     /**
@@ -493,7 +500,7 @@ final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{clas
          * @param {{name}} {{name}} value
          * @return updated builder
          */
-        public Builder {{name}}({{{datatypeWithEnum}}} {{name}}) {
+        public Builder {{name}}({{#vendorExtensions.x-nullable-direct-cascade-validation}}java.util.Optional<{{{datatypeWithEnum}}}>{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-nullable-direct-cascade-validation}} {{name}}) {
             return super.{{name}}({{name}});
         }
 
@@ -551,7 +558,7 @@ final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{clas
          * @param {{name}} {{name}} value
          * @return updated builder
          */
-        public B {{name}}({{{datatypeWithEnum}}} {{name}}) {
+        public B {{name}}({{#vendorExtensions.x-nullable-direct-cascade-validation}}java.util.Optional<{{{datatypeWithEnum}}}>{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-nullable-direct-cascade-validation}} {{name}}) {
             instance.{{name}}({{name}});
             return self();
         }
@@ -604,7 +611,7 @@ final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{clas
          * @param {{name}} {{name}} value
          * @return updated builder
          */
-        public Builder {{name}}({{{datatypeWithEnum}}} {{name}}) {
+        public Builder {{name}}({{#vendorExtensions.x-nullable-direct-cascade-validation}}java.util.Optional<{{{datatypeWithEnum}}}>{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-nullable-direct-cascade-validation}} {{name}}) {
             (({{classname}}) instance).{{name}}({{name}});
             return this;
         }
@@ -662,7 +669,7 @@ final class {{classname}}JsonBindingFactory implements JsonBindingFactory<{{clas
          * @param {{name}} {{name}} value
          * @return updated builder
          */
-        public B {{name}}({{{datatypeWithEnum}}} {{name}}) {
+        public B {{name}}({{#vendorExtensions.x-nullable-direct-cascade-validation}}java.util.Optional<{{{datatypeWithEnum}}}>{{/vendorExtensions.x-nullable-direct-cascade-validation}}{{^vendorExtensions.x-nullable-direct-cascade-validation}}{{{datatypeWithEnum}}}{{/vendorExtensions.x-nullable-direct-cascade-validation}} {{name}}) {
             instance.{{name}}({{name}});
             return self();
         }

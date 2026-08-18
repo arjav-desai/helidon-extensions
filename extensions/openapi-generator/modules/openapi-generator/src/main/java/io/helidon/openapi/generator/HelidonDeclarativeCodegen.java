@@ -111,7 +111,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
     static final String OPT_DISCRIMINATOR_REPRESENTATION = "discriminatorRepresentation";
     private static final String EXT_DISCRIMINATOR_REPRESENTATION =
             "x-helidon-discriminator-representation";
-    private String helidonVersion = "4.5.0";
+    private String helidonVersion = "4.5.2";
     private String javaVersion = "21";
     private boolean generateClient = true;
     private boolean generateErrorHandler = true;
@@ -126,6 +126,9 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
     private List<SecurityRequirement> globalSecurityRequirements = List.of();
     private final JsonStringEnumSupport jsonStringEnums;
     private Map<String, Map<String, String>> rawDiscriminatorMappingsBySchema = Map.of();
+    private AllOfValidationSupport.Snapshot allOfValidationSnapshot = AllOfValidationSupport.Snapshot.empty();
+    private Map<String, Map<String, List<CodegenProperty>>> allOfValidationPropertiesBySchema = Map.of();
+    private CascadingValidationSupport.Analysis cascadingValidation = CascadingValidationSupport.Analysis.empty();
 
     /**
      * Creates a new generator with default options and template mappings.
@@ -389,6 +392,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
     public void preprocessOpenAPI(io.swagger.v3.oas.models.OpenAPI openAPI) {
         jsonStringEnums.preprocess(openAPI);
         captureRawDiscriminatorMappings(openAPI);
+        allOfValidationSnapshot = AllOfValidationSupport.snapshot(openAPI);
         super.preprocessOpenAPI(openAPI);
         globalSecurityRequirements = openAPI.getSecurity() == null
                 ? List.of()
@@ -697,6 +701,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         boolean anyOptionalQuery = false;
         boolean anySecurityRoles = false;
         boolean anyParamValidation = false;
+        boolean anyRequestValidation = false;
         boolean anyFormOperations = false;
         boolean anyMultipartOperations = false;
         String errorModel = null;
@@ -740,6 +745,10 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
                     param.vendorExtensions.put("x-validation-annotations", paramValidations);
                     anyParamValidation = true;
                 }
+                if (param.isBodyParam && CascadingValidationSupport.apply(param, cascadingValidation, modelPackage)) {
+                    anyParamValidation = true;
+                    anyRequestValidation = true;
+                }
             }
             if (op.vendorExtensions.containsKey("x-is-form-urlencoded")) anyFormOperations = true;
             if (op.vendorExtensions.containsKey("x-is-multipart")) anyMultipartOperations = true;
@@ -759,6 +768,8 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
             }
         }
 
+        CascadingValidationSupport.addRequestEntityImports(result, opList, cascadingValidation, modelPackage);
+
         result.put("hasComputedHeaders", anyComputedHeaders);
         result.put("hasOptionalQueryParams", anyOptionalQuery);
         result.put("hasSecurityRoles", anySecurityRoles);
@@ -769,6 +780,9 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         if (anyParamValidation) {
             // Needed by pom.xml.mustache when only parameters (not models) use @Validation.*
             additionalProperties.put("hasValidation", Boolean.TRUE);
+        }
+        if (anyRequestValidation) {
+            additionalProperties.put("hasRequestValidation", Boolean.TRUE);
         }
 
         // Also expose classname in operations context for templates that need it
@@ -913,22 +927,31 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         normalizeComposedModels(models, modelsByClassname, unionInterfacesByMember);
         applyUnionInterfaces(models, unionInterfacesByMember);
         applyAllOfDiscriminatorHierarchy(models, modelsByClassname);
+        Set<String> topLevelStringEnums = jsonStringEnums.prepareModels(models);
+        allOfValidationPropertiesBySchema = AllOfValidationSupport.validationProperties(
+                allOfValidationSnapshot, this::toModelName, (name, schema) -> fromProperty(name, schema, false),
+                property -> !buildValidationAnnotations(property).isEmpty());
 
+        cascadingValidation = CascadingValidationSupport.analyze(
+                models,
+                modelsByClassname.keySet(),
+                (model, property) -> AllOfValidationSupport.validationSources(
+                                allOfValidationPropertiesBySchema, model, property).stream()
+                        .anyMatch(source -> !buildValidationAnnotations(source).isEmpty()));
         boolean anyValidation = false;
         for (Map.Entry<String, ModelsMap> entry : result.entrySet()) {
             ModelsMap modelsMap = entry.getValue();
             for (ModelMap modelContainer : modelsMap.getModels()) {
                 var model = modelContainer.getModel();
-                if (jsonStringEnums.prepareTopLevelModel(model)) {
+                if (topLevelStringEnums.contains(model.classname)) {
                     continue;
                 }
                 if (Boolean.TRUE.equals(model.vendorExtensions.get("x-is-union-interface"))) {
-                    model.vendorExtensions.put("x-render-vars", List.of());
                     continue;
                 }
 
-                boolean modelHasValidation = false;
-                List<CodegenProperty> renderVars = jsonStringEnums.prepareInlineModelEnums(model);
+                boolean modelHasValidation = cascadingValidation.participatingModels().contains(model.classname);
+                List<CodegenProperty> renderVars = cascadingValidation.propertiesByModel().get(model.classname);
 
                 for (CodegenProperty prop : renderVars) {
                     // Mark required properties for @Json.Required
@@ -937,12 +960,24 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
                     }
 
                     // Build @Validation.* annotations from OpenAPI constraints
-                    List<Map<String, Object>> validationAnnotations = buildValidationAnnotations(prop);
+                    List<CodegenProperty> validationSources = new ArrayList<>(allOfValidationPropertiesBySchema
+                                                                                      .getOrDefault(model.classname,
+                                                                                                    Map.of())
+                                                                                      .getOrDefault(prop.baseName,
+                                                                                                    List.of()));
+                    validationSources.addAll(CascadingValidationSupport.validationSources(model,
+                                                                                           prop,
+                                                                                           cascadingValidation));
+                    CodegenProperty validationProperty = AllOfValidationSupport.merge(model, validationSources);
+                    List<Map<String, Object>> validationAnnotations = buildValidationAnnotations(validationProperty);
                     if (!validationAnnotations.isEmpty()) {
                         prop.vendorExtensions.put("x-validation-annotations", validationAnnotations);
-                        modelHasValidation = true;
                     }
 
+                    CascadingValidationSupport.apply(prop,
+                                                      cascadingValidation.modelNames(),
+                                                      cascadingValidation.participatingModels(),
+                                                      modelPackage);
                     // Format default value as a Java literal for field initializer
                     String javaDefault = formatDefaultValue(prop);
                     if (javaDefault != null) {
@@ -950,16 +985,20 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
                     }
                 }
 
+                CascadingValidationSupport.applyInherited(model, cascadingValidation, modelPackage, inheritedProperty -> {
+                    List<CodegenProperty> validationSources = new ArrayList<>(allOfValidationPropertiesBySchema
+                                                                                      .getOrDefault(model.classname,
+                                                                                                    Map.of())
+                                                                                      .getOrDefault(
+                                                                                              inheritedProperty.baseName,
+                                                                                              List.of()));
+                    validationSources.add(inheritedProperty);
+                    return buildValidationAnnotations(AllOfValidationSupport.merge(model, validationSources));
+                });
+
                 if (modelHasValidation) {
                     model.vendorExtensions.put("x-has-validations", Boolean.TRUE);
-                    // The modelsMap-level "imports" list is already resolved to FQNs before
-                    // postProcessAllModels() runs — add directly to it so the template picks it up.
-                    @SuppressWarnings("unchecked")
-                    List<Map<String, String>> importsList =
-                            (List<Map<String, String>>) modelsMap.get("imports");
-                    if (importsList != null) {
-                        importsList.add(new HashMap<>(Map.of("import", "io.helidon.validation.Validation")));
-                    }
+                    CascadingValidationSupport.addValidationImport(modelsMap);
                     anyValidation = true;
                 }
             }
@@ -1767,7 +1806,7 @@ public class HelidonDeclarativeCodegen extends AbstractJavaCodegen {
         if (prop.isFloat) {
             return val + "f";
         }
-        if (prop.isArray || prop.isMap) {
+        if (prop.isArray || prop.isMap || ValidationTypeSupport.isJavaArray(prop.datatypeWithEnum)) {
             return null;  // skip — complex initialization
         }
         return val;  // integer, double, boolean — value as-is
