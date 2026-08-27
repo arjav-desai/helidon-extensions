@@ -13,30 +13,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-openapi: 3.0.3
+swagger: "2.0"
 info:
-  title: Nullable request cascading validation
+  title: Swagger 2 optional request cascading validation
   version: "1.0"
+basePath: /
 paths:
   /child:
     post:
       operationId: createChild
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              nullable: true
-              allOf:
-                - $ref: '#/components/schemas/ConstrainedChild'
+      parameters:
+        - name: child
+          in: body
+          schema:
+            $ref: '#/definitions/ConstrainedChild'
       responses:
         "204":
           description: Valid
-components:
-  schemas:
-    ConstrainedChild:
-      type: object
-      properties:
-        code:
-          type: string
-          minLength: 3
+definitions:
+  ConstrainedChild:
+    type: object
+    properties:
+      code:
+        type: string
+        minLength: 3
