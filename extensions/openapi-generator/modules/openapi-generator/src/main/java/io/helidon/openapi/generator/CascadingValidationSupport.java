@@ -69,7 +69,6 @@ final class CascadingValidationSupport {
                                                                  directlyConstrained);
         Map<String, List<CodegenProperty>> effectiveProperties = effectiveProperties(propertiesByModel, inheritance);
         validateShapes(models, effectiveProperties, modelNames, participating);
-        validateNestedNullability(models, effectiveProperties, modelNames, participating);
         validateAcyclicGraph(effectiveProperties, modelNames, participating);
         Map<String, Set<String>> unsupportedPolymorphicTypes = unsupportedPolymorphicTypes(
                 models, participating, modelSpecificValidation);
@@ -135,39 +134,6 @@ final class CascadingValidationSupport {
             }
         }
         return Set.copyOf(result);
-    }
-
-    private static void validateNestedNullability(List<CodegenModel> models,
-                                                  Map<String, List<CodegenProperty>> propertiesByModel,
-                                                  Set<String> modelNames,
-                                                  Set<String> participating) {
-        for (CodegenModel model : models) {
-            for (CodegenProperty property : propertiesByModel.getOrDefault(model.classname, List.of())) {
-                String javaType = propertyType(property);
-                validateNestedModelNullability(model, property, javaType, modelNames, participating);
-            }
-        }
-    }
-
-    private static void validateNestedModelNullability(CodegenModel model,
-                                                       CodegenProperty property,
-                                                       String javaType,
-                                                       Set<String> modelNames,
-                                                       Set<String> participating) {
-        CodegenProperty nested = property.items != null ? property.items : property.additionalProperties;
-        if (nested == null) {
-            return;
-        }
-        String nestedType = propertyType(nested);
-        if (nested.isNullable
-                && ValidationTypeSupport.isDirectParticipatingModel(nestedType, modelNames, participating)) {
-            throw new IllegalArgumentException("Unsupported nullable cascading validation boundary for schema '"
-                    + model.classname + "', property '" + property.baseName + "', mapped Java type '" + javaType
-                    + "': a nested model element or map value is nullable, but Helidon 4.5 invokes "
-                    + "@Validation.Valid validators eagerly without a null guard. Make nested model values "
-                    + "non-nullable or validate the boundary in application logic.");
-        }
-        validateNestedModelNullability(model, nested, javaType, modelNames, participating);
     }
 
     @SuppressWarnings("unchecked")
@@ -448,17 +414,12 @@ final class CascadingValidationSupport {
                          Analysis analysis,
                          String modelPackage) {
         String javaType = effectiveRequestEntityType(parameter);
-        boolean participatingBoundary = ValidationTypeSupport.referencedModels(javaType, analysis.modelNames).stream()
-                .anyMatch(analysis.participatingModels::contains);
         if (!javaType.equals(parameter.dataType)) {
             parameter.dataType = javaType;
             parameter.datatypeWithEnum = javaType;
             parameter.baseType = javaType;
             parameter.isPrimitiveType = false;
             parameter.isFreeFormObject = false;
-        }
-        if (participatingBoundary) {
-            validateRequestNullability(parameter, javaType);
         }
         Set<String> unsupportedPolymorphicTypes = ValidationTypeSupport.referencedModels(
                 javaType, analysis.unsupportedPolymorphicTypes.keySet());
@@ -511,33 +472,6 @@ final class CascadingValidationSupport {
                     + contentTypes + '.');
         }
         return contentTypes.stream().findFirst().orElse(parameter.dataType);
-    }
-
-    private static void validateRequestNullability(CodegenParameter parameter, String javaType) {
-        if (!parameter.requiredAndNotNullable()) {
-            throw new IllegalArgumentException("Unsupported nullable cascading validation request entity '"
-                    + parameter.baseName + "', mapped Java type '" + javaType + "'. Helidon 4.5 invokes "
-                    + "@Validation.Valid validators eagerly and does not guard null. Make the request body required "
-                    + "and non-nullable or validate it in application logic.");
-        }
-        validateNestedRequestNullability(parameter.items, parameter.baseName, javaType);
-        validateNestedRequestNullability(parameter.additionalProperties, parameter.baseName, javaType);
-    }
-
-    private static void validateNestedRequestNullability(CodegenProperty property,
-                                                          String parameterName,
-                                                          String javaType) {
-        if (property == null) {
-            return;
-        }
-        if (property.isModel && property.isNullable) {
-            throw new IllegalArgumentException("Unsupported nullable cascading validation request entity '"
-                    + parameterName + "', mapped Java type '" + javaType + "': a nested model element or map value "
-                    + "is nullable, but Helidon 4.5 invokes @Validation.Valid validators eagerly without a null "
-                    + "guard. Make nested model values non-nullable or validate the boundary in application logic.");
-        }
-        validateNestedRequestNullability(property.items, parameterName, javaType);
-        validateNestedRequestNullability(property.additionalProperties, parameterName, javaType);
     }
 
     static void applyInherited(CodegenModel model,

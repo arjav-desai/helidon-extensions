@@ -195,37 +195,43 @@ class CascadingValidationGenerationIT {
     }
 
     @Test
-    void rejectsNullableDirectRequestEntityBeforeRendering() {
+    void supportsNullableDirectRequestEntity() throws Exception {
         Path target = outputDir.resolve("nullable-request");
-        RuntimeException error = assertThrows(RuntimeException.class,
-                                              () -> generate(target,
-                                                             "nullable-request-cascading-validation.yaml",
-                                                             null));
-        assertThat(rootMessage(error), containsString("nullable cascading validation request entity"));
-        assertThat(rootMessage(error), containsString("ConstrainedChild"));
+        generate(target, "nullable-request-cascading-validation.yaml", null);
+        assertThat(read(apiFile(target, "DefaultApi.java")),
+                   containsString("@Validation.Valid @Http.Entity ConstrainedChild constrainedChild"));
     }
 
     @Test
-    void rejectsNullableRequestContainerElementBeforeRendering() {
+    void supportsOpenApiRequestEntityWhenRequiredIsOmitted() throws Exception {
+        Path target = outputDir.resolve("optional-request");
+        generate(target, "optional-request-cascading-validation.yaml", null);
+        assertThat(read(apiFile(target, "DefaultApi.java")),
+                   containsString("@Validation.Valid @Http.Entity ConstrainedChild constrainedChild"));
+    }
+
+    @Test
+    void supportsSwagger2RequestEntityWhenRequiredIsOmitted() throws Exception {
+        Path target = outputDir.resolve("swagger2-optional-request");
+        generate(target, "swagger2-optional-request-cascading-validation.yaml", null);
+        assertThat(read(apiFile(target, "DefaultApi.java")),
+                   containsString("@Validation.Valid @Http.Entity ConstrainedChild child"));
+    }
+
+    @Test
+    void supportsNullableRequestContainerElement() throws Exception {
         Path target = outputDir.resolve("nullable-request-element");
-        RuntimeException error = assertThrows(RuntimeException.class,
-                                              () -> generate(target,
-                                                             "nullable-request-element-cascading-validation.yaml",
-                                                             null));
-        assertThat(rootMessage(error), containsString("nested model element or map value is nullable"));
-        assertThat(rootMessage(error), containsString("List<ConstrainedChild>"));
+        generate(target, "nullable-request-element-cascading-validation.yaml", null);
+        assertThat(read(apiFile(target, "DefaultApi.java")),
+                   containsString("@Http.Entity List<@Validation.Valid ConstrainedChild> constrainedChild"));
     }
 
     @Test
-    void rejectsNullableModelContainerElementBeforeRendering() {
+    void supportsNullableModelContainerElement() throws Exception {
         Path target = outputDir.resolve("nullable-model-element");
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                                                       () -> generate(target,
-                                                                      "nullable-model-element-cascading-validation.yaml",
-                                                                      null));
-        assertThat(error.getMessage(), containsString("schema 'Parent', property 'children'"));
-        assertThat(error.getMessage(), containsString("nested model element or map value is nullable"));
-        assertThat(Files.exists(modelFile(target, "Parent.java")), org.hamcrest.CoreMatchers.is(false));
+        generate(target, "nullable-model-element-cascading-validation.yaml", null);
+        assertThat(read(modelFile(target, "Parent.java")),
+                   containsString("public List<@Validation.Valid ConstrainedChild> children()"));
     }
 
     @Test
