@@ -29,3 +29,23 @@ pages:
 
 - [Config Reference](config/config_reference.md) <!--@icon i-lucide-cogs -->
 <!-- TODO Add a Javadocs link when the API documentation is available. -->
+
+## Migrating to version 27
+
+> [!WARNING]
+> Helidon Extensions 27 deliberately removes the legacy Cohere scoring-model `proxy` configuration option and the
+> generated `proxy(Proxy)` builder methods. The pinned LangChain4j builder retains its deprecated `proxy(Proxy)` method,
+> but model construction rejects every non-null proxy and directs applications to configure proxying through an HTTP
+> client builder.
+>
+> Proxying remains available through a LangChain4j `HttpClientBuilder`. For example, wrap a proxy-configured
+> `java.net.http.HttpClient.Builder` in LangChain4j's `JdkHttpClientBuilder`, then supply it programmatically with
+> `CohereScoringModelConfig.Builder.httpClientBuilder(...)`. Alternatively, register a proxy-aware implementation as
+> a named service and select it with `http-client-builder.service-registry.named`.
+
+> [!WARNING]
+> OpenAI image-model configuration also changes in Helidon Extensions 27. Remove `style`, which has no direct
+> replacement, and remove image-model `response-format`. The chat-model `response-format` option remains available.
+> Image models now support `background`, `output-format`, `output-compression`, and `moderation`; configure these
+> independently as needed. Removed image-model options may otherwise fail configuration validation or silently stop
+> applying.

@@ -70,6 +70,49 @@ the provider interface, you can do that for the properties that are too complex
 for setting via configuration. By adding annotation `@Option.RegistryService`
 you make it injectable from Helidon’s service registry.
 
+## Model Lifecycle and Ownership
+
+Generated model factories own the model instances they create. By default, they
+close owned `AutoCloseable` models both when initialization fails or is aborted
+before publication and during service registry shutdown.
+
+`AiProvider.ModelLifecycle` separates these policies. `closeModelOnShutdown()`
+controls cleanup of successfully published models during registry shutdown.
+`closeModelOnInitializationFailure()` controls rollback of models created but
+not published during unsuccessful initialization. Its default delegates to
+`closeModelOnShutdown()`, preserving the same choice unless a provider overrides
+the rollback policy separately.
+
+Return `false` when closing a model would transfer ownership of a borrowed
+resource, or when model close cannot complete safely during registry shutdown.
+A provider may still close an unpublished model during rollback when the model
+created and owns its resources. For example, this provider disables shutdown
+close but rolls back a model only when it did not receive a registry-owned
+client:
+
+```java
+@AiProvider.ModelConfig(ExampleChatModel.class)
+interface ExampleLc4jProvider extends AiProvider.ModelLifecycle {
+
+    @Option.Configured
+    @Option.RegistryService
+    Optional<ExampleClient> client();
+
+    @Override
+    default boolean closeModelOnShutdown() {
+        return false;
+    }
+
+    @Override
+    default boolean closeModelOnInitializationFailure() {
+        return client().isEmpty();
+    }
+}
+```
+
+Returning `false` from either policy means that the generated factory does not
+invoke `close()` on the model in that lifecycle phase.
+
 ## Configuration
 
 LangChain4j provider config key is by default derived from the provider
@@ -150,6 +193,10 @@ Types of properties injectable by default:
   for all the models
 - `dev.langchain4j.http.client.HttpClientBuilder` Custom http client
 - `dev.langchain4j.model.chat.listener.ChatModelListener` Chat model listener
+  for observability
+- `dev.langchain4j.model.embedding.listener.EmbeddingModelListener` Embedding model listener
+  for observability
+- `dev.langchain4j.model.moderation.listener.ModerationModelListener` Moderation model listener
   for observability
 
 [helidon-integrat]: langchain4j.md#maven-coordinates

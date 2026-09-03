@@ -27,16 +27,13 @@ import com.oracle.bmc.Region;
 import com.oracle.bmc.auth.BasicAuthenticationDetailsProvider;
 import com.oracle.bmc.generativeaiinference.GenerativeAiInferenceClient;
 import dev.langchain4j.community.model.oracle.oci.genai.OciGenAiChatModel;
-import dev.langchain4j.community.model.oracle.oci.genai.OciGenAiStreamingChatModel;
 
 @AiProvider.ModelConfig(
         value = OciGenAiChatModel.class,
-        skip = "logitBias\\(java\\.lang\\.Object\\)")
-@AiProvider.ModelConfig(
-        value = OciGenAiStreamingChatModel.class,
-        skip = "logitBias\\(java\\.lang\\.Object\\)")
+        skip = {"logitBias\\(java\\.lang\\.Object\\)",
+                "genAiAsyncClient\\(com\\.oracle\\.bmc\\.generativeaiinference\\.GenerativeAiInferenceAsyncClient\\)"})
 @Prototype.CustomMethods(OciFactoryMethods.class)
-interface OciGenAiLc4jProvider {
+interface OciGenAiLc4jProvider extends AiProvider.ModelLifecycle {
 
     /**
      * OCI LLM Model name or OCID.
@@ -80,6 +77,30 @@ interface OciGenAiLc4jProvider {
     @Option.Configured
     @Option.RegistryService
     Optional<GenerativeAiInferenceClient> genAiClient();
+
+    /**
+     * Closes an internally owned model if initialization fails or is aborted, while preserving ownership of a supplied
+     * client.
+     *
+     * @return {@code true} when no OCI GenAI client is supplied
+     */
+    @Override
+    default boolean closeModelOnInitializationFailure() {
+        return genAiClient().isEmpty();
+    }
+
+    /**
+     * Disables automatic model close because LangChain4j does not track active synchronous calls, so close can race
+     * an operation. This also leaves internally created clients open; callers using one must close the model
+     * explicitly after all operations complete and before registry shutdown starts.
+     *
+     * @return always {@code false}
+     */
+    @Override
+    default boolean closeModelOnShutdown() {
+        // LangChain4j does not account for synchronous calls in its model lifecycle yet.
+        return false;
+    }
 
     /**
      * Modifies the likelihood of specified tokens that appear in the completion.

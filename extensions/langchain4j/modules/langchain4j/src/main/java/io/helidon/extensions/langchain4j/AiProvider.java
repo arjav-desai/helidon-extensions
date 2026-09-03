@@ -33,6 +33,40 @@ public final class AiProvider {
     }
 
     /**
+     * Lifecycle contract for model configurations consumed by generated model factories.
+     * <p>
+     * Generated factories close model instances after failed or aborted initialization and during service registry
+     * shutdown by default. A configuration can independently opt out of either phase when the model borrows externally
+     * owned resources or closing it is unsafe during that lifecycle phase.
+     */
+    public interface ModelLifecycle {
+
+        /**
+         * Whether the generated model factory should close the configured model if factory initialization fails or is
+         * aborted before model services are published.
+         * <p>
+         * The default delegates to {@link #closeModelOnShutdown()} to preserve the behavior of existing lifecycle
+         * implementations. A provider may override this method when initialization cleanup is safe even though closing
+         * the model during service registry shutdown is not.
+         *
+         * @return {@code true} when the generated factory should close the model after initialization fails or is
+         *         aborted
+         */
+        default boolean closeModelOnInitializationFailure() {
+            return closeModelOnShutdown();
+        }
+
+        /**
+         * Whether the generated model factory should close the configured model during service registry shutdown.
+         *
+         * @return {@code true} when the generated factory should close the model during service registry shutdown
+         */
+        default boolean closeModelOnShutdown() {
+            return true;
+        }
+    }
+
+    /**
      * Default config key used under langchain4j context for all model configs in the same class.
      * Override provider key otherwise derived from class name prefix.
      */

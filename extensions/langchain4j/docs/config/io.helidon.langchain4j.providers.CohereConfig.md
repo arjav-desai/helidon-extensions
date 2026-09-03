@@ -64,6 +64,29 @@ Merged configuration for langchain4j.providers.cohere
 </tr>
 <tr>
 <td>
+<code>listeners</code>
+</td>
+<td>
+<code>List&lt;<wbr>Embedding<wbr>Model<wbr>Listener&gt;</code>
+</td>
+<td>
+</td>
+<td>Generated from <code>dev.<wbr>langchain4j.<wbr>model.<wbr>cohere.<wbr>Cohere<wbr>Embedding<wbr>Model.<wbr>Cohere<wbr>Embedding<wbr>Model<wbr>Builder#<wbr>listeners(<wbr>java.<wbr>util.<wbr>List)</code></td>
+</tr>
+<tr>
+<td>
+<code>listeners-<wbr>discover-<wbr>services</code>
+</td>
+<td>
+<code>Boolean</code>
+</td>
+<td>
+<code>true</code>
+</td>
+<td>Whether to enable automatic service discovery for <code>listeners</code></td>
+</tr>
+<tr>
+<td>
 <code>log-<wbr>requests</code>
 </td>
 <td>
@@ -130,18 +153,18 @@ Merged configuration for langchain4j.providers.cohere
 </tr>
 <tr>
 <td>
-<code>proxy</code>
+<code>http-<wbr>client-<wbr>builder</code>
 </td>
 <td>
-<code>Proxy</code>
+<code>Http<wbr>Client<wbr>Builder</code>
 </td>
 <td>
 </td>
-<td>Proxy to use</td>
+<td>HTTP client builder to use</td>
 </tr>
 <tr>
 <td>
-<code>proxy-<wbr>discover-<wbr>services</code>
+<code>http-<wbr>client-<wbr>builder-<wbr>discover-<wbr>services</code>
 </td>
 <td>
 <code>Boolean</code>
@@ -149,7 +172,7 @@ Merged configuration for langchain4j.providers.cohere
 <td>
 <code>true</code>
 </td>
-<td>Whether to enable automatic service discovery for <code>proxy</code></td>
+<td>Whether to enable automatic service discovery for <code>http-<wbr>client-<wbr>builder</code></td>
 </tr>
 <tr>
 <td>
